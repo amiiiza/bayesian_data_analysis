@@ -1,0 +1,367 @@
+---
+title: "Assignment 4"
+author: anonymous # <-- hand in anonymously
+format: 
+  html:
+    toc: true
+    code-tools: true
+    code-line-numbers: true  
+    number-sections: true
+    mainfont: Georgia, serif
+    page-layout: article
+  pdf:  
+    geometry:
+    - left=1cm,top=1cm,bottom=1cm,right=1cm
+    number-sections: true
+    code-annotations: none
+editor: source
+---
+
+# General information
+
+::: {.content-hidden when-format="pdf"}
+::: {.callout-warning collapse="false"}
+## Setup
+
+*This block will only be visible in your HTML output, but will be hidden when rendering to PDF with quarto for the submission.* **Make sure that this does not get displayed in the PDF!**
+
+This is the template for [assignment 4](assignment4.html). You can download the [qmd-file](https://avehtari.github.io/BDA_course_Aalto/assignments/template4.qmd) or copy the code from this rendered document after clicking on `</> Code` in the top right corner.
+
+**Please replace the instructions in this template by your own text, explaining what you are doing in each exercise.**
+
+The following will set-up [`markmyassignment`](https://github.com/MansMeg/markmyassignment) to check your functions at the end of the notebook:
+
+```{r}
+if(!require(markmyassignment)){
+    install.packages("markmyassignment")
+    library(markmyassignment)
+}
+assignment_path = paste("https://github.com/avehtari/BDA_course_Aalto/",
+"blob/master/assignments/tests/assignment4.yml", sep="")
+set_assignment(assignment_path)    
+```
+
+The following installs and loads the `aaltobda` package:
+
+```{r}
+if(!require(aaltobda)){
+    install.packages("remotes")
+    remotes::install_github("avehtari/BDA_course_Aalto", subdir = "rpackage", upgrade="never")
+    library(aaltobda)
+}
+```
+
+The following installs and loads the [`latex2exp` package](https://github.com/stefano-meschiari/latex2exp), which allows us to use LaTeX in plots:
+
+```{r}
+if(!require(latex2exp)){
+    install.packages("latex2exp")
+    library(latex2exp)
+}
+```
+:::
+:::
+
+I did not use AI for solving this exercise.
+
+# Bioassay model
+
+## (a)
+
+Given the prior distributions for two parameters, $\alpha$ and $\beta$:
+
+$$\alpha \propto N(0,2^2)$$ 
+$$\beta \propto N(10,10^2)$$ 
+The known correlation between them is represented as $\rho$:
+
+$$corr(\alpha, \beta) = 0.6$$
+
+The mean of this bivariate normal posterior distribution is:
+
+$$\bar{\mu} = (\mu_{\alpha}, \mu_{\beta}) = (0, 10)$$
+The covariance matrix for this posterior distribution is:
+
+$$
+\sum = \begin{pmatrix}
+\sigma_{\alpha}^2 & \rho\,\sigma_{\alpha}\,\sigma_{\beta} \\
+\rho\,\sigma_{\alpha}\,\sigma_{\beta} & \sigma_{\beta}^2\\
+\end{pmatrix} =
+\begin{pmatrix}
+2^2 & 0.6 \times 2 \times 10 \\
+0.6\times 2\times10 & 10^2\\
+\end{pmatrix} =
+\begin{pmatrix}
+4 & 12 \\
+12 & 100\\
+\end{pmatrix}
+$$ 
+Therefore, the posterior distribution for these parameters can be expressed as a bivariate normal distribution
+
+$$
+\begin{pmatrix}
+x_1\\
+x_2 \\
+\end{pmatrix} =
+N
+\begin{bmatrix}
+\begin{pmatrix}
+\mu_1 \\
+\mu_2 \\
+\end{pmatrix},
+\begin{pmatrix}
+\sigma_{\alpha}^2 & \rho\,\sigma_{\alpha}\,\sigma_{\beta} \\
+\rho\,\sigma_{\alpha}\,\sigma_{\beta} & \sigma_{\beta}^2\\
+\end{pmatrix}
+\end{bmatrix}
+$$
+
+```{r}
+# Posterior distribution
+mean_vector <- c(0,10);
+covariance_matrix <- matrix(c(4, 12, 12, 100),2)
+joint_posterior <- rmvnorm(4000, mean=mean_vector, 
+                           sigma=covariance_matrix)
+head(joint_posterior)
+print("\nCovariance Matrix:")
+print(covariance_matrix)
+
+print("Mean Vector:")
+print(mean_vector)
+```
+
+## (b)
+
+Loading the library and the data.
+
+```{r}
+# Useful functions: quantile()
+# and mcse_quantile() (from aaltobda)
+
+data("bioassay_posterior")
+# The 4000 draws are now stored in the variable `bioassay_posterior`.
+# The below displays the first rows of the data:
+head(bioassay_posterior)
+
+# Extract alpha and beta samples from bioassay_posterior
+alpha_samples <- bioassay_posterior$alpha
+beta_samples <- bioassay_posterior$beta
+
+# Calculate the number of samples (S)
+S <- length(alpha_samples)
+
+# Calculate mean and variance for alpha and beta samples
+mean_alpha <- mean(alpha_samples)
+mean_beta <- mean(beta_samples)
+var_alpha <- var(alpha_samples)
+var_beta <- var(beta_samples)
+
+# Calculate mean Monte Carlo Standard Error (MCSE)
+mean_alpha_mcse <- sqrt(var_alpha / S)
+mean_beta_mcse <- sqrt(var_beta / S)
+
+# Calculate quantiles for alpha and beta samples
+alpha_5 <- quantile(alpha_samples, probs = 0.05)
+alpha_95 <- quantile(alpha_samples, probs = 0.95)
+beta_5 <- quantile(beta_samples, probs = 0.05)
+beta_95 <- quantile(beta_samples, probs = 0.95)
+
+# Calculate MCSE for quantiles
+alpha_5_mcse <- mcse_quantile(alpha_samples, prob = 0.05)
+alpha_95_mcse <- mcse_quantile(alpha_samples, prob = 0.95)
+beta_5_mcse <- mcse_quantile(beta_samples, prob = 0.05)
+beta_95_mcse <- mcse_quantile(beta_samples, prob = 0.95)
+
+# Output results
+cat(
+  "Mean and MCSE:\n",
+  paste("Mean alpha MCSE:", mean_alpha_mcse, "\n"),
+  paste("Mean alpha:", mean_alpha, "\n"),
+  paste("So the true value is between ", mean_alpha - 3*mean_alpha_mcse, " and ",
+        mean_alpha + 3*mean_alpha_mcse, "\n"),
+  paste("REPORT FOR Mean Alpha:  ", round(mean_alpha + 3*mean_alpha_mcse,1) ,
+        "\n---------------\n"),
+  paste("Mean beta MCSE:", mean_beta_mcse, "\n"),
+  paste("Mean beta:", mean_beta, "\n"),
+  paste("So the true value is between ", mean_beta - 3*mean_beta_mcse, " and ",
+        mean_beta + 3*mean_beta_mcse, "\n"),
+  paste("REPORT FOR Mean Beta:  ", round(mean_beta - 3*mean_beta_mcse,0) ,
+        "\n---------------\n"),
+  "\nAlpha Quantiles and MCSE:\n",
+  paste("MCSE for 5% alpha quantile:", alpha_5_mcse, "\n"),
+  paste("Quantile 5% alpha:", alpha_5, "\n"),
+  paste("So the true value is between ", alpha_5 - 3*alpha_5_mcse, " and ",
+        alpha_5 + 3*alpha_5_mcse, "\n"),
+  paste("REPORT FOR Quantile 5% alpha:  ", round(alpha_5 + 3*alpha_5_mcse, 1) ,
+        "\n---------------\n"),
+  paste("MCSE for 95% alpha quantile:", alpha_95_mcse, "\n"),
+  paste("Quantile 95% alpha:", alpha_95, "\n"),
+  paste("So the true value is between ", alpha_95 - 3*alpha_95_mcse, " and ",
+        alpha_95 + 3*alpha_95_mcse, "\n"),
+  paste("REPORT FOR Quantile 95% alpha:  ", round(alpha_95 + 3*alpha_95_mcse, 1) ,
+        "\n---------------\n"),
+  "\nBeta Quantiles and MCSE:\n",
+  paste("MCSE for 5% beta quantile:", beta_5_mcse, "\n"),
+  paste("Quantile 5% beta:", beta_5, "\n"),
+  paste("So the true value is between ", beta_5 - 3*beta_5_mcse, " and ",
+        beta_5 + 3*beta_5_mcse, "\n"),
+  paste("REPORT FOR Quantile 5% beta:  ", round(beta_5 + 3*beta_5_mcse, 1) ,
+        "\n---------------\n"),
+  paste("MCSE for 95% beta quantile:", beta_95_mcse, "\n"),
+  paste("Quantile 95% beta:", beta_95, "\n"),
+  paste("So the true value is between ", beta_95 - 3*beta_95_mcse, " and ",
+        beta_95 + 3*beta_95_mcse, "\n"),
+  paste("REPORT FOR Quantile 95% beta:  ", round(beta_95 + 3*beta_95_mcse, 0) ,
+        "\n---------------\n")
+)
+```
+
+# Importance sampling
+
+## (c)
+
+```{r}
+# Useful functions: bioassaylp (from aaltobda)
+alpha_test = c(1.896, -3.6,  0.374, 0.964, -3.123, -1.581)
+beta_test = c(24.76, 20.04, 6.15, 18.65, 8.16, 17.4)
+
+data("bioassay")
+
+log_importance_weights <- function(alpha, beta) {
+    # Do computation here, and return as below.
+    # This is the correct return value for the test data provided above.
+    weights_array <- numeric(length(alpha))
+    weights_array <- bioassaylp(alpha, 
+                                beta, 
+                                bioassay$x, 
+                                bioassay$y, 
+                                bioassay$n)
+    return(c(weights_array))
+}
+```
+
+## (d)
+
+```{r}
+normalized_importance_weights <- function(alpha, beta) {
+    # Do computation here, and return as below.
+    # This is the correct return value for the test data provided above.
+    # Calculate weights_array_norm
+    weights_array <- exp(log_importance_weights(alpha, beta))
+
+    sum_weights <- sum(weights_array)
+
+    weights_array_norm_final <- weights_array / sum_weights
+
+    weights_norm <- c(weights_array_norm_final)
+
+    return(weights_norm)
+}
+```
+
+## (e)
+
+```{r}
+n <- 4000
+joint_posterior <- rmvnorm(n, mean = mean_vector, 
+                           sigma = covariance_matrix)
+alpha_samples <- (joint_posterior[,1])
+beta_samples <- (joint_posterior[,2])
+weights <- log_importance_weights(alpha_samples, beta_samples)
+weights_normalized <- normalized_importance_weights(alpha = alpha_samples, beta = beta_samples)
+hist(weights, main = "Histogram of the weights")
+hist(weights_normalized, main = "Histogram of the normalized weights")
+head(weights_normalized)
+```
+
+## (f)
+
+```{r}
+S_eff <- function(alpha, beta) {
+    # Do computation here, and return as below.
+    # This is the correct return value for the test data provided above.
+    weights_normalized <- normalized_importance_weights(alpha, beta)
+    seff <- 1 / sum(weights_normalized^2)
+    return(seff)
+}
+
+s_eff <- S_eff(alpha = alpha_samples, beta = beta_samples)
+
+cat("S_eff: ", s_eff, "\n")
+```
+
+## (g)
+
+In the context of importance sampling, the effective sample size serves as a measure of how efficiently a set of samples represents the target distribution. A high effective sample size is desirable because it indicates that the samples are making a substantial contribution to the estimation process. Conversely, a low effective sample size suggests that many samples are redundant or don't significantly impact the final result.
+
+Upon examining the histogram, it becomes evident that a substantial number of small weights occur quite frequently. Specifically, weights falling in the range between $0$ and $0.0002$ appear around $3000$ times. However, our goal is to ensure that all samples carry equal importance. Consequently, the effective sample size should ideally be around $4000 - 3000 = 1000$, which aligns closely with the calculated value of S_eff. This adjustment aims to balance the importance of each sample in the estimation process.
+
+## (h)
+
+```{r}
+posterior_mean <- function(alpha, beta) {
+    # Do computation here, and return as below.
+    # This is the correct return value for the test data provided above.
+    weights_normalized <- normalized_importance_weights(alpha = alpha, beta = beta)
+    alpha_posterior_mean <- 0
+    beta_posterior_mean <- 0
+    for (i in 1:length(alpha)){
+      i
+      alpha_posterior_mean <- alpha_posterior_mean + alpha[i]*weights_normalized[i]
+      beta_posterior_mean <- beta_posterior_mean + beta[i]*weights_normalized[i]
+    }
+    return(c(alpha_posterior_mean, beta_posterior_mean))
+}
+posterior_means <- posterior_mean(alpha=alpha_samples, beta=beta_samples)
+
+print("Posterior Means: ")
+print(posterior_means)
+
+weight = normalized_importance_weights(alpha_samples, beta_samples)
+
+alpha_f = (alpha_samples^2) * weight
+beta_f = (beta_samples^2) * weight
+
+sq_alpha = sum(alpha_f)
+sq_beta = sum(beta_f)
+
+mean_alpha = posterior_mean(alpha_samples, beta_samples)[1]
+mean_beta = posterior_mean(alpha_samples, beta_samples) [2]
+var_alpha = sq_alpha - (mean_alpha^2)
+var_beta =  sq_beta - (mean_beta^2)
+seff = S_eff (alpha_samples, beta_samples)
+
+mcse_alpha = sqrt(var_alpha/seff)
+mcse_beta = sqrt(var_beta/seff)
+
+cat ("MCSE alpha", mcse_alpha, "\n")
+cat ("MCSE beta", mcse_beta, "\n")
+cat(
+  paste("Mean alpha:", mean_alpha, "\n"),
+  paste("So the true value is between ", mean_alpha - 3*mcse_alpha, " and ",
+        mean_alpha + 3*mcse_alpha, "\n"),
+  paste("REPORT FOR Mean Alpha:  ", round(mean_alpha + 3*mcse_alpha, 1) ,
+        "\n---------------\n"),
+  paste("Mean beta MCSE:", mean_beta_mcse, "\n"),
+  paste("Mean beta:", mean_beta, "\n"),
+  paste("So the true value is between ", mean_beta - 3*mcse_beta, " and ",
+        mean_beta + 3*mcse_beta, "\n"),
+  paste("REPORT FOR Mean Beta:  ", round(mean_beta + 3*mcse_beta, 0) ,
+        "\n---------------\n")
+)
+
+
+```
+
+::: {.content-hidden when-format="pdf"}
+::: {.callout-warning collapse="false"}
+## markmyassignment
+
+*This block will only be visible in your HTML output, but will be hidden when rendering to PDF with quarto for the submission.* **Make sure that this does not get displayed in the PDF!**
+
+The following will check the functions for which `markmyassignment` has been set up:
+
+```{r}
+mark_my_assignment()    
+```
+:::
+:::

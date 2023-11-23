@@ -1,0 +1,644 @@
+---
+title: "Assignment 7"
+subtitle: "Hierarchical model in Stan"
+author: anonymous # <-- hand in anonymously
+format: 
+  html:
+    toc: true
+    code-tools: true
+    code-line-numbers: true  
+    number-sections: true
+    mainfont: Georgia, serif
+    page-layout: article
+  pdf:  
+    geometry:
+    - left=1cm,top=1cm,bottom=1cm,right=1cm
+    number-sections: true
+    code-annotations: none
+editor: source
+---
+
+# General information
+
+::: {.content-hidden when-format="pdf"}
+::: {.callout-warning collapse="false"}
+## Setup
+
+*This block will only be visible in your HTML output, but will be hidden when rendering to PDF with quarto for the submission.* **Make sure that this does not get displayed in the PDF!**
+
+The following loads several needed packages:
+
+```{r}
+#| label: imports
+
+library(aaltobda)
+library(bayesplot)
+library(cmdstanr)
+library(dplyr)
+library(ggplot2)
+library(ggdist) # for stat_dotsinterval
+library(posterior)
+if(!require(brms)){
+    install.packages("brms")
+    library(brms)
+}
+
+# Set more readable themes with bigger font for plotting packages.
+ggplot2::theme_set(theme_minimal(base_size = 14))
+bayesplot::bayesplot_theme_set(theme_minimal(base_size = 14))
+
+# This registers CmdStan as the backend for compiling cmdstan-chunks.
+check_cmdstan_toolchain(fix = TRUE, quiet = TRUE)
+register_knitr_engine(override = FALSE)
+```
+:::
+:::
+
+I did not use AI for solving this exercise.
+
+# Hierarchical Model: Chicken Data with Stan (6p)
+
+## Choosing a weakly informative prior by intuition
+
+## (a) 
+
+My rationale for this estimation is as follows:
+
+A chicken typically hatches from an egg with an initial weight of around $40$ grams. The average daily weight gain is not uniform for each week and varies considerably depending on age
+
+If we consider $21$ days to become fully grown: During this growth period, it's natural for a chicken to experience variations in its weight, with an average daily weight gain of about $1.5$ to $16.5$ grams. This range accounts for fluctuations due to factors like diet, genetics, and environmental conditions. Considering this weight gain range over the course of $21$ days, a fully grown chicken's weight is expected to fall within the broader range of $70$ to $380$ grams.
+
+If we consider $18$ weeks to become fully grown: During this growth period, it's natural for a chicken to experience variations in its weight, with an average daily weight gain of about $15.5$ to $31.5$ grams. This range accounts for fluctuations due to factors like diet, genetics, and environmental conditions. Considering this weight gain range over the course of $18 \times 7$ days, a fully grown chicken's weight is expected to fall within the broader range of $2000$ to $4000$ grams.
+
+## (b) 
+
+Considering the growth period of the first $12$ days in a chicken's life, the rate of weight gain is typically lower than during the full growth period. On average, a $12$-day old chicken experiences variations in its weight, with an average daily weight gain of approximately $1$ to $14.5$ grams. If we consider a newly hatched chicken with an initial weight of around $40$ grams, it is reasonable to estimate that a 12-day old chicken's weight would fall within the range of approximately $52$ to $220$ grams. I would choose a mean $\mu_0$ for the weakly informed prior of the parameter $\mu$ to be around $136$ grams. Note that the average daily weight gain during first $12$ days is less than first $21$ days with a small difference and it is less than first $18$ weeks with a big difference.
+
+## (c) 
+
+During the first $12$ days of a chicken's life, we can define biologically grounded constraints on its weight range. These constraints are rooted in the natural growth and development of the chicken. Firstly, it's reasonable to assume that a chicken might experience a slight weight loss on some days, which could be up to 1 gram. Considering that it was born with a weight of $40$ grams, it's plausible for a $12$-day old chick to have a minimum weight of approximately $30$ grams.
+
+Conversely, it's essential to acknowledge that the rate of weight gain during this early stage is more moderate compared to the full growth period. To provide a conservative estimate, we should consider that the daily weight gain is unlikely to exceed $22$ grams in a day. This upper limit aligns with the idea that, during a full growth period, the maximum daily gain is around $16.5$ grams. A limit of $22$ grams significantly surpasses this rate, allowing for reasonable fluctuations in daily weight gain.
+
+Considering these considerations, we can define a conservative weight range for any $12$-day old chick, spanning from $30$ to $300$ grams.
+
+## (d)
+
+Using the formula for standard deviation:
+
+$$\sigma_{plausible} = \frac{\text{Maximum} - \text{Minimum}}{6}$$
+
+and given that the Maximum is $300$ and the Minimum is $30$, we can calculate the standard deviation as follows:
+
+$$\sigma_{plausible} = \frac{300 - 30}{6} = \frac{270}{6} = 45 \text{ grams}$$
+
+So, based on this formula, the plausible sd for the prior would be $45$ grams. Therefore, the standard deviation is $\sigma_0 = 450$.
+
+## (e) 
+
+The prior for the mean weight $\mu$, given the standard deviation $\sigma_0 = 450$ and mean $\mu_0 = 136$, can be expressed as a normal distribution:
+
+$$\mu \sim \mathcal{N}(\mu_0, \sigma_0)$$
+
+The final prior in mathematical notation would be:
+
+$$\mu \sim \mathcal N(136, 450)$$
+
+## Choosing a weakly informative prior using external references
+
+## (f) 
+
+This is my references as a external references:
+
+"[First one](https://www.chickenguard.co.uk/how-much-do-chickens-weigh)" and "[Second one](https://land.decorexpro.com/en/domashnyaya-ptica/ves-brojlerov-po-dnam-tablica.html)"
+
+I this sources, which states that the weight range of fully grown farm chickens is typically between $2.5$ kilograms and $4$ kilograms. To adjust this range for a 12-day old chick, I would adjust that a 12-day old chick gain weight $6.6$ grams to $16.6$ grams which is significantly less than average growth rate of a fully grown chicken. So, I would estimate the weight range for a $12$-day old chick to be between $120$ grams and $240$ grams, which is a reasonable adjustment.
+
+## (g) 
+
+Based on this reference range, I would choose a mean of $\mu_0 = 180$ grams for our weakly informed prior.
+
+## (h) 
+
+For the upper bound: $Pr(180 + 3\sigma < 240) \approx 0.997$, solving for $\sigma$.
+
+Using the z-score formula:
+
+$$
+z = \frac{X - \mu}{\sigma}
+$$
+
+where $X$ is the value you want to find the probability for (in this case, 240), $\mu$ is the mean (average) of the distribution, and $\sigma$ is the standard deviation.
+
+First, find the z-score for the probability $0.997$ using a standard normal distribution table or calculator: $z \approx 2.7$.
+
+Now, you can set up the equation:
+
+$$
+2.7 = \frac{240 - \mu}{\sigma}
+$$
+
+Solve for $\sigma$:
+
+$$
+\sigma_{\text{upper}} = \frac{240 - \mu}{2.7} \approx 22
+$$
+
+For the lower bound we should look to negative z-score. Find the z-score for the probability $1 - 0.997$ using a standard normal distribution table or calculator: $z \approx - 2.7$.
+
+Now, set up the equation:
+
+$$
+-2.7 = \frac{120 - \mu}{\sigma}
+$$
+
+Solve for $\sigma$:
+
+$$
+\sigma_{\text{lower}} = \frac{120 - \mu}{-2.7} \approx 22
+$$
+
+## (i) 
+
+The prior for the mean weight $\mu$, given the standard deviation $\sigma_0 = 22$ and mean $\mu_0 = 180$, can be expressed as a normal distribution:
+
+$$\mu \sim \mathcal{N}(\mu_0, \sigma_0)$$
+
+The final prior in mathematical notation would be:
+
+$$\mu \sim \mathcal N(180, 22)$$
+
+## Non-normal priors
+
+## (j)
+
+Non-negative: When dealing with variables that cannot have negative values, like weight, height, or age, using a normal distribution as a prior is not ideal because it assigns nonzero probabilities to negative values. In such situations, it might be more suitable to opt for a distribution that exclusively encompasses non-negative values, such as a Gamma or Log-normal distribution.
+
+Bounded Variables: When dealing with variables that have strict bounds and cannot take on values outside of those bounds, a normal distribution as a prior may not be appropriate. For example, if you are modeling a percentage or proportion that is bounded between 0 and 1, a normal distribution could assign non-zero probabilities to values outside this range, which is not meaningful.
+
+The key is to choose a prior distribution that aligns with the nature and constraints of the variable you are modeling. Normal distributions are often used for variables that are continuous and unbounded. Moreover we can note that noncontinuous variables is not suitable for normal distribution.
+
+## Modeling diet effects on chicken weight
+
+::: {.callout-important collapse="true"}
+# Data inside, don't peek before you have set your priors!
+
+::: {.callout-important collapse="true"}
+# Have you set your priors?
+
+```{r}
+#| message: false
+data("ChickWeight")
+
+Chick12 <- ChickWeight |> filter(Time == 12)
+
+head(Chick12)
+```
+:::
+:::
+
+::: {.content-hidden when-format="pdf"}
+::: {.callout-warning collapse="false"}
+## Sample from the posterior
+
+*This block will only be visible in your HTML output, but will be hidden when rendering to PDF with quarto for the submission.* **Make sure that this does not get displayed in the PDF!**
+
+To sample from the posterior using Stan, use:
+
+```{r}
+#| label: format data for Stan
+stan_data <- list(
+  N_observations = nrow(Chick12),
+  N_diets = length(unique(Chick12$Diet)),
+  diet_idx = Chick12$Diet,
+  weight = Chick12$weight
+)
+
+model_separate <- cmdstan_model(stan_file = "additional_files/assignment7/chickens_separate.stan")
+
+# Sampling from the posterior distribution happens here:
+fit_separate <- model_separate$sample(data = stan_data, refresh=0,
+                                      show_messages=FALSE,
+                                      show_exceptions=FALSE)
+
+model_pooled <- cmdstan_model(stan_file = "additional_files/assignment7/chickens_pooled.stan")
+
+# Sampling from the posterior distribution happens here:
+fit_pooled <- model_pooled$sample(data = stan_data, refresh=0,
+                                      show_messages=FALSE,
+                                      show_exceptions=FALSE)
+
+model_hierarchical <- cmdstan_model(stan_file = "additional_files/assignment7/chickens_hierarchical.stan")
+
+# Sampling from the posterior distribution happens here:
+fit_hierarchical <- model_hierarchical$sample(data = stan_data, refresh=0,
+                                      show_messages=FALSE,
+                                      show_exceptions=FALSE)
+```
+
+Fit objects returned by the `sample()` method, by default print a summary of the posterior draws. These are **NOT** the results you would expect to turn in your report. You will need to change the priors in the code for the separate model.
+
+```{r}
+fit_separate
+```
+
+Quick model convergence check (as in assignment 6):
+
+```{r}
+fit_separate$cmdstan_diagnose()
+```
+:::
+:::
+
+## (k)
+
+1.  Separate model:
+
+The mathematical formulation of the model is: $$\mu_{d} \sim N(180, 22)$$ $$\sigma_d \sim exponential(0.02)$$ $$w_{i,d} \sim N(\mu_d,\sigma_d)$$ Unlike other models, our approach assigns unique parameters, $\sigma_j$ and $\mu_j$, to each diet $j$. Each of these parameters is associated with its own distinct prior distribution. This modeling choice reflects our underlying assumption that the diets are independent of each other.
+
+2.  Pooled model:
+
+The mathematical formulation of the model is: $$\mu \sim N(180, 22)$$ $$\sigma \sim exponential(0.02)$$ $$w_{i} \sim N(\mu_d,\sigma_d)$$ Unlike other models, our approach employs a common set of parameters, $\sigma$ and $\mu$, shared by all diets. Each of these parameters is associated with its own specific prior distribution. This modeling choice signifies our underlying assumption that all measurements are pooled together, and there is no differentiation between diets.
+
+3.  Hierarchical model:
+
+The mathematical formulation of the model is: $$\mu \sim N(180, 22)$$ $$\tau \sim exponential(0.02)$$ $$\mu_{d} \sim N(\mu,\tau)$$ $$\sigma_d \sim exponential(0.02)$$ $$w_{i,d} \sim N(\mu_d,\sigma_d)$$ Unlike other models, in a hierarchical model, a multilevel modeling process is considered, assuming that the prior distributions depend on an upon further hyperparameters that are obtained from a hyperprior distributions.
+
+The hierarchical model, which eliminates the assumption that only a single set of data represents the entire population by employing a multilevel approach, yields more realistic results compared to the separate model, where the standard deviation and mean are considered dependent on each group individually. On the other hand, the pooled model also outperforms the separate model, though it falls short of the hierarchical model in delivering accurate results.
+
+\newpage
+
+## (l)
+
+-   Separate model:
+
+```{=tex}
+\begin{verbatim}
+data {
+  int<lower=0> N_observations;
+  int<lower=0> N_diets;
+  array[N_observations] int diet_idx; // Pair observations to their diets.
+  vector[N_observations] weight;
+}
+
+parameters {
+  vector[N_diets] mean_diet;
+  vector<lower=0>[N_diets] sd_diet;
+}
+
+model {
+  for (diet in 1:N_diets) {
+    mean_diet[diet] ~ normal(180, 22);
+    sd_diet[diet] ~ exponential(0.02);
+  }
+
+  for (obs in 1:N_observations) {
+    weight[obs] ~ normal(mean_diet[diet_idx[obs]], sd_diet[diet_idx[obs]]);
+  }
+}
+
+generated quantities {
+  real weight_pred = normal_rng(mean_diet[4], sd_diet[4]);
+  real mean_five = normal_rng(180, 22);
+}
+\end{verbatim}
+```
+\newpage
+
+-   Pooled model:
+
+```{=tex}
+\begin{verbatim}
+data {
+  int<lower=0> N_observations;
+  int<lower=0> N_diets;
+  array[N_observations] int diet_idx; // Pair observations to their diets.
+  vector[N_observations] weight;
+}
+
+parameters {
+  real mean_diet;
+  real<lower=0> sd_diet;
+}
+
+model {
+  mean_diet ~ normal(180, 22);
+  sd_diet ~ exponential(0.02);
+
+  for (obs in 1:N_observations) {
+    weight[obs] ~ normal(mean_diet, sd_diet);
+  }
+}
+
+generated quantities {
+  real weight_pred = normal_rng(mean_diet, sd_diet);
+  real mean_five = normal_rng(180, 22); 
+}
+\end{verbatim}
+```
+\newpage
+
+-   Hierarchical model:
+
+```{=tex}
+\begin{verbatim}
+data {
+  int<lower=0> N_observations;
+  int<lower=0> N_diets;
+  array[N_observations] int diet_idx; // Pair observations to their diets.
+  vector[N_observations] weight;
+}
+
+parameters {
+  real hyper_mu;
+  real<lower=0> tau;
+  vector[N_diets] mean_diet;
+  vector<lower=0>[N_diets] sd_diet;
+}
+
+model {
+  hyper_mu ~ normal(180, 22);
+  tau ~ exponential(0.02);
+
+  for (diet in 1:N_diets) {
+    mean_diet[diet] ~ normal(hyper_mu, tau);
+    sd_diet[diet] ~ exponential(0.02);
+  }
+
+  for (obs in 1:N_observations) {
+    weight[obs] ~ normal(mean_diet[diet_idx[obs]], sd_diet[diet_idx[obs]]);
+  }
+}
+
+generated quantities {
+  real sd_diets = sd_diet[4];
+  real weight_pred = normal_rng(mean_diet[4],sd_diet[4]);
+  real mean_five = normal_rng(hyper_mu, tau);
+}
+\end{verbatim}
+```
+**For the figures below, we use the earlier draws for the separate model with bad priors. When you have implemented the pooled and hierarchical models, edit the code below to include draws from your model posterior into the figures.**
+
+::: {.content-hidden when-format="pdf"}
+::: {.callout-warning collapse="false"}
+### Data preparation and sampling from the posterior
+
+*This block will only be visible in your HTML output, but will be hidden when rendering to PDF with quarto for the submission.* **Make sure that this does not get displayed in the PDF!**
+
+Below, we collect the corresponding posterior draws from the three models into a shared data frame using the `extract_variable` function. This makes plotting the posterior in a single plot easier.
+
+```{r}
+#| label: prepare data for plots
+#| code-summary: Prepare data for plots
+
+# Expect the same number of posterior draws from each model.
+ndraws <- nrow(fit_hierarchical$sampler_diagnostics(format = "matrix"))
+
+# Collect posterior draws and the model used to a data frame.
+mean_diet_4_separate = extract_variable(fit_separate, "mean_diet[4]")
+mean_diet_4_pooled = extract_variable(fit_pooled, "mean_diet")
+mean_diet_4_hierarchical = extract_variable(fit_hierarchical, "mean_diet[4]")
+posterior_mean_diet_4 <- data.frame(
+  model_name = rep(c("Separate", "Pooled", "Hierarchical"),
+              each = ndraws),
+  mean_diet_4 = c(
+   mean_diet_4_separate, mean_diet_4_pooled, mean_diet_4_hierarchical
+  ))
+
+predicted_weight_diet_4 <- data.frame(
+  model_name = rep(c("Separate", "Pooled", "Hierarchical"),
+              each = ndraws),
+  predicted_weight = c(
+   extract_variable(fit_separate, "weight_pred"),
+   extract_variable(fit_pooled, "weight_pred"),
+   extract_variable(fit_hierarchical, "weight_pred")
+  ))
+
+# Collect posterior draws and the model used to a long data frame.
+posterior_mean_diet_5 <- data.frame(
+  model_name = rep(c("Separate", "Pooled", "Hierarchical"),
+    each = ndraws
+  ),
+  mean_diet_5 = c(
+    extract_variable(fit_separate, "mean_five"),
+    extract_variable(fit_pooled, "mean_five"),
+    extract_variable(fit_hierarchical, "mean_five")
+  )
+)
+
+# Mean observed weight per diet, these help to compare the posteriors to data.
+diet_means <- sapply(
+  1:4, function(diet) mean(Chick12[Chick12$Diet == diet, "weight"])
+)
+```
+:::
+:::
+
+## (m)
+
+```{r}
+#| label: figure - posterior of mean 4
+#| fig-cap: Posterior distribution of the mean weight of chicks consuming diet 4.
+ggplot(posterior_mean_diet_4, aes(x = mean_diet_4, y = model_name)) +
+  stat_dotsinterval(quantiles = 100, scale = .9) +
+  vline_at(diet_means[4], size = 1, linetype = "dashed") +
+  # Annotate the vline from above.
+  annotate("text", label = "Observation mean", x = diet_means[4] - 5, y = .7,
+           hjust = "right", size = 6) +
+  # Add title and axis labels. One line to make everything so much more clear!
+  labs(
+    title = "Mean of diet 4",
+    x = "Weight (g)",
+    y = "Model"
+  )
+```
+1. In the Separate Model, the data points exhibit a wide dispersion of weights, reflecting a substantial variability in the predicted outcomes. This implies that the Separate model permits a high degree of customization for each diet, potentially capturing a broad spectrum of effects, albeit at the risk of overfitting the data.
+
+2. In contrast, the Pooled Model displays data points tightly clustered around a specific weight, indicative of limited variability in the predicted outcomes. This hints at the Pooled model's assumption that all diets have identical effects, which can be a robust simplification but may miss individual diet-specific nuances.
+
+3. The Hierarchical Model strikes a balance between the Separate and Pooled models. It presents data points with moderate dispersion, suggesting a moderate degree of variability in the predicted weights. This indicates that the Hierarchical model combines the advantages of both individual diet customization and shared information between diets, achieving a nuanced approach to the problem.
+
+## (n)
+
+```{r}
+#| label: figure - predicted weight of for diet 4
+#| fig-cap: The (posterior) predictive distribution of the weigth of a chick consuming diet 4.
+ggplot(predicted_weight_diet_4, aes(x = predicted_weight, y = model_name)) +
+  stat_dotsinterval(quantiles = 100, scale = .9) +
+  vline_at(diet_means[4], size = 1, linetype = "dashed") +
+  # Annotate the vline from above.
+  annotate("text", label = "Observation mean", x = diet_means[4] - 5, y = .7,
+           hjust = "right", size = 6) +
+  # Add title and axis labels. One line to make everything so much more clear!
+  labs(
+    title = "Weigth of a chick with diet 4",
+    x = "Weight (g)",
+    y = "Model"
+  )
+```
+1. Separate Model: This model exhibits a notably higher average weight prediction for chicks on diet 4 and a narrower weight range compared to the other two models. In essence, it implies that the separate model offers a more specific weight prediction for this diet, indicating limited variability between different diets.
+
+2. Pooled Model: In the pooled model, all groups are treated as if they share a common distribution, which means the spread in predictions is influenced by observations from all groups. This approach may lead to a broader overall spread, especially if there is inherent variability between groups.
+
+3. Hierarchical Model: Positioned between the separate and pooled models, the hierarchical model assumes that group parameters stem from a shared distribution. This setup allows for some between-group variability while also facilitating information sharing between groups. As a result, it may produce a slightly broader spread than the separate model if between-group variation exists but less than what's observed in the pooled model. In essence, the hierarchical model strikes a balance between the extremes of the separate and pooled models.
+
+## (o)
+
+```{r}
+#| label: figure - posterior of mean 5
+#| fig-cap: Posterior distribution of the mean weight of chicks consuming the new diet 5 not seen before.
+
+ggplot(posterior_mean_diet_5, aes(x = mean_diet_5, y = model_name)) +
+  # Draw the mean of each diet from the data as a dashed vertical line.
+  vline_at(diet_means, size = .5, linetype = "dashed") +
+  # dotsinterval gives mean, 50%, and 90% intervals + dotsplot with each dot
+  # representing 1% of data (quantiles = 100).
+  stat_dotsinterval(quantiles = 100, scale = .9) +
+  # Annotate the vline from above.
+  annotate(geom = "text", label = "Means of observed diets", y = .7, x = 100,
+           hjust = "right", size = 5, family = "sans") +
+  # Add title and axis labels. One line to make everything so much more clear!
+  labs(title = "Mean of a new diet",
+       x = "Weight (g)",
+       y = "Model")
+```
+1. Separate Model: In the Separate model, the posterior distribution is characterized by a moderate level of concentration, falling between the Pooled and Hierarchical models. This implies that the Separate model yields a range of credible values for the mean weight of the new diet that is neither too narrow nor too broad.
+
+2. Pooled Model: The Pooled model's posterior distribution is tightly centered around a specific value, signifying a low degree of uncertainty. This outcome suggests that the Pooled model, which assumes uniform effects across all diets, produces a constrained set of credible values for the mean weight of the new diet.
+
+3. Hierarchical Model: Under the Hierarchical model, the posterior distribution for the mean weight of the new fifth diet exhibits a wide dispersion, indicating a high level of uncertainty. This implies that the Hierarchical model results in a broad range of credible values for the mean weight of the new diet, offering a less precise estimate compared to the other models.
+
+## (p) 
+
+```{r}
+   posterior_expectation_separate <- mean(mean_diet_4_separate)
+   posterior_expectation_pooled <- mean(mean_diet_4_pooled)
+   posterior_expectation_hierarchical <- mean(mean_diet_4_hierarchical)
+   
+   credible_interval_separate <- quantile(mean_diet_4_separate, c(0.05, 0.95))
+   credible_interval_pooled <- quantile(mean_diet_4_pooled, c(0.05, 0.95))
+   credible_interval_hierarchical <- quantile(mean_diet_4_hierarchical, c(0.05, 0.95))
+   
+   cat("Separate Model:\nPosterior Expectation =", round(posterior_expectation_separate,2) ,
+       "\n90% Credible Interval =", round(credible_interval_separate,2), "\n\n")
+   
+   cat("Pooled Model:\nPosterior Expectation =", round(posterior_expectation_pooled,2),
+       "\n90% Credible Interval =", round(credible_interval_pooled,2), "\n\n")
+   
+   cat("Hierarchical Model:\nPosterior Expectation =", round(posterior_expectation_hierarchical,2),
+       "\n90% Credible Interval =", round(credible_interval_hierarchical,2), "\n\n")
+```
+
+# Hierarchical model with BRMS (3p)
+
+## (a)
+
+```{r}
+#| label: plot scatter centered parameterisation
+
+bayesplot::mcmc_scatter(x = fit_hierarchical$draws(variables = c("mean_diet[4]", "sd_diets")),
+                        np = nuts_params(fit_hierarchical)) +
+  scale_y_log10() +
+  labs(x = expression(mean_diet[4]), y = expression(sd_diets)) +
+  ylim(c(0,NA))
+```
+
+The scatter plot reveals red points scattered amidst the blue ones, indicating divergent transitions in the Stan Hamiltonian Monte Carlo sampling process. These divergent transitions often signal potential issues with the model fit, particularly when the model is overly intricate or the priors lack robust constraints, leading the sampler into extreme parameter territories.
+
+## (b)
+
+::: {.content-hidden when-format="pdf"}
+::: {.callout-warning collapse="false"}
+### Create a brms model and sample from the posterior
+
+*This block will only be visible in your HTML output, but will be hidden when rendering to PDF with quarto for the submission.* **Make sure that this does not get displayed in the PDF!**
+
+```{r}
+#| label: fit brms model
+brms_fit = brm(
+  weight ~ 1 + (1 | Diet),
+  data=Chick12,
+  prior=c(
+    # REPLACE WITH YOUR PRIOR FOR THE INTERCEPT
+    prior(normal(180, 22), class="Intercept"), # prior for mu_0
+    # REPLACE WITH YOUR PRIOR FOR SIGMA
+    prior(exponential(0.02), class="sigma"),     # prior for sigma
+    # REPLACE WITH YOUR PRIOR FOR SD
+    prior(exponential(0.02), class="sd")         # prior for tau
+  ),
+  backend = "cmdstanr",
+  save_pars = save_pars(manual = c("z_1[1,4]"))
+)
+```
+:::
+:::
+
+Because `brms` is a bit chatty, suppress its output in the PDF using the block above, but copy the code you executed into the code block below, which doesn't execute
+
+```{r, eval = FALSE}
+# Copy the code you used to create the brms model and run the sampling
+brms_fit = brm(
+  weight ~ 1 + (1 | Diet),
+  data=Chick12,
+  prior=c(
+    # REPLACE WITH YOUR PRIOR FOR THE INTERCEPT
+    prior(normal(180, 22), class="Intercept"), # prior for mu_0
+    # REPLACE WITH YOUR PRIOR FOR SIGMA
+    prior(exponential(0.02), class="sigma"),     # prior for sigma
+    # REPLACE WITH YOUR PRIOR FOR SD
+    prior(exponential(0.02), class="sd")         # prior for tau
+  ),
+  backend = "cmdstanr",
+  save_pars = save_pars(manual = c("z_1[1,4]"))
+)
+```
+
+## (c)
+
+```{r}
+#| label: transformed posterior draws from brms
+# Draws for mu_4
+mu_4 = posterior_epred(brms_fit, newdata = data.frame(Diet=4))
+
+# Compute the mean, and quantiles. Remember to round your answers accordingly.
+# Calculate the 90% credible interval for mu_4
+credible_interval <- quantile(mu_4, probs = c(0.05, 0.95))
+
+# Calculate the posterior mean for mu_4
+posterior_mean <- mean(mu_4)
+
+# Display the results
+cat("Posterior Mean for mu_4:", round(posterior_mean, 2), "\n")
+cat("90% Credible Interval for mu_4:", round(credible_interval[1], 2), "to", round(credible_interval[2], 2), "\n")
+```
+
+## (d)
+
+Due the non-centered parametrization, we need to transform compute the $\mu_d$ term as the sum of the population intercept and the group specific deviation from the intercept. You can choose which diet to plot by modifying the `d` integer in `r_Diet[d,Intercept]`.
+
+```{r}
+#| label: plot scatter non-centered parameterisation
+
+draws = as_draws_df(brms_fit) |>
+  posterior::mutate_variables(mean_diet_4 = `r_Diet[4,Intercept]` + b_Intercept)
+
+bayesplot::mcmc_scatter(draws,
+                        pars = c("mean_diet_4", "sd_Diet__Intercept"),
+                        np = nuts_params(brms_fit)) +
+  scale_y_log10() +
+  xlab(expression(mean_diet[4])) +
+  ylab(expression(sd_diets))
+
+```
+
+Certainly, the preceding plot illustrates a reduced presence of red points amid the blue ones, signifying fewer instances of divergent transitions in the Hamiltonian Monte Carlo (HMC) sampling process utilized by Stan. This observation suggests that the HMC sampling process is achieving good convergence. With fewer divergent transitions, the sampler effectively explores the posterior distribution, resulting in more dependable and precise parameter estimates.
+
+## (e) 
+
+- The non-centered version, run using brms, exhibits a lower occurrence of divergences. Moreover, the second parameterizations resulted in fewer divergent transitions due to the fewer number of red points.
+
+- In the case of the non-centered version, most divergences are characterized by high values of the tuning parameter $\tau$ around 100. However, in the centered version, no distinct pattern emerges; instead, roughly $75\%$ of the divergences occur at low $\tau$ values, typically less than 20.
+
+- Interestingly, the centered version displays issues that are less localized and appear to be distributed across various regions, lacking a specific concentration.
+
+

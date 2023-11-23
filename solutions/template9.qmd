@@ -1,0 +1,259 @@
+---
+title: "Assignment 9"
+subtitle: "Decision analysis"
+author: anonymous # <-- hand in anonymously
+format:
+  html:
+    toc: true
+    code-tools: true
+    code-line-numbers: true
+    number-sections: true
+    mainfont: Georgia, serif
+    page-layout: article
+  pdf:  
+    geometry:
+    - left=1cm,top=1cm,bottom=1cm,right=7cm
+    number-sections: true
+    code-annotations: none
+editor: source
+---
+
+
+# General information
+
+:::: {.content-hidden when-format="pdf"}
+::: {.callout-warning collapse=false}
+ 
+## Setup
+
+
+*This block will only be visible in your HTML output, but will be hidden when rendering to PDF with quarto for the submission.*
+**Make sure that this does not get displayed in the PDF!**
+    
+
+
+The following loads several needed packages:
+
+```{r}
+#| label: imports
+library(bayesplot)
+library(cmdstanr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(ggdist) # for stat_dotsinterval
+library(posterior)
+library(brms)
+# Globally specfiy cmdstan backend for brms
+options(brms.backend="cmdstanr")
+# Tell brms to cache results if possible
+options(brms.file_refit="on_change")
+
+# Set more readable themes with bigger font for plotting packages
+ggplot2::theme_set(theme_minimal(base_size = 14))
+bayesplot::bayesplot_theme_set(theme_minimal(base_size = 14))
+```
+
+:::
+::::
+
+I did not use AI for solving this exercise.
+
+# Escaping from the chicken coop
+
+## (a)
+
+
+:::: {.content-hidden when-format="pdf"}
+::: {.callout-warning collapse=false}
+ 
+### A simple GP model
+
+
+*This block will only be visible in your HTML output, but will be hidden when rendering to PDF with quarto for the submission.*
+**Make sure that this does not get displayed in the PDF!**
+    
+
+
+
+The below fits a GP model to the chicken growth curves. It may take a few minutes to fit, but you 
+can also [download the fit `.rds`-file](./additional_files/assignment9/gp_chicken_fit.rds) and work with that fit object. 
+
+```{r fit}
+fit <- readRDS("./additional_files/assignment9/gp_chicken_fit.rds")
+brms::pp_check(fit, type = "intervals_grouped", group = "Diet")
+```
+
+:::
+::::
+
+
+
+```{r}
+# Useful r functions: 
+#   rep(..., each=...), cbind, colMeans, 
+#   posterior_predict(..., newdata=..., allow_new_levels=TRUE, sample_new_levels="gaussian")
+#   ggplot, geom_line, aes(..., group=..., color=...)
+df1 <- data.frame(
+     Time = rep(1:40, each = length(unique(ChickWeight$Diet))),
+     Diet = rep(unique(ChickWeight$Diet), 40),
+     Chick = rep("NewChicken", 40 * length(unique(ChickWeight$Diet)))
+)
+
+Time = rep(1:40, each = 4)
+Diet = rep(1:4, times = 40)
+df2 <- data.frame(Chick = 999, 
+                  Time, 
+                  Diet)
+
+
+df2 = df2 %>% arrange(Diet, Time)
+
+
+preds <- posterior_predict(fit, 
+                            newdata = df1, 
+                            allow_new_levels = TRUE, 
+                            sample_new_levels = "gaussian")
+
+predictions = posterior_predict(fit,
+                                new = df2, 
+                                allow_new_levels=TRUE,
+                                sample_new_levels="gaussian")
+
+expected_weight <- colMeans(preds)
+df1$ExpectedWeightss <- expected_weight
+
+expected_weights <- colMeans(predictions)
+df2$ExpectedWeight <- expected_weights
+
+ggplot(df1, aes(x = Time, y = ExpectedWeightss, group = Diet, color = Diet)) +
+  geom_line() +
+  labs(x = "Time (days)", y = "Expected Weight", color = "Diet") +
+  theme_minimal() +
+ggtitle("Expected Chicken Weight for Days 1-40 Per Diet")
+
+```
+
+The predictions appear sound, as the weights consistently show an upward trend over time, and the impact of Diet closely corresponds to the pattern observed in the graph presented in Assignment 8.
+
+- **Evaluation of Predictive Outcomes:**
+  - Based on the visual representation and the model developed in the previous assignment, the predicted outcomes demonstrate a high level of reasonability.
+  - The model adeptly captures the typical growth trajectory of chickens, characterized by an initial rapid growth phase followed by a gradual slowdown as they mature.
+
+- **Impact of Diet on Growth:**
+  - The model effectively illustrates the significant influence of diet on the growth rate of chickens.
+  - Clear differences in predicted weights over time for chickens on different diets highlight the role of diet in shaping growth patterns.
+
+- **Temporal Analysis of Growth:**
+  - The growth trajectory starts with a common initial weight, followed by a rapid growth phase in the first 20 days.
+  - Post this period, growth rates diverge based on the diet, with Diets 3 and 4 exhibiting an exponential pattern, while Diets 1 and 2 transition to a slower, more linear growth rate.
+
+- **Distinct Growth Trends:**
+  - The four distinct growth trends underscore the impact of diet on weight gain, revealing clear distinctions in growth patterns.
+  - By the end of the observed period, predicted weights for Diets 1, 2, 3, and 4 are approximately 225, 390, 580, and 630, respectively.
+
+- **Overall Model Reasonability:**
+  - Considering the plot and the observed trends, the model's predictions can be confidently deemed reasonable within the specified context.
+
+
+:::: {.content-hidden when-format="pdf"}
+::: {.callout-warning collapse=false}
+
+###  Chickenwise probability of escape function
+
+
+*This block will only be visible in your HTML output, but will be hidden when rendering to PDF with quarto for the submission.*
+**Make sure that this does not get displayed in the PDF!**
+    
+
+```{r}
+bump <- function(x, loc=0, scale=1){
+  xi = (x - loc) / scale
+  ifelse(abs(xi) < 1, exp(-1/(1-xi^2)), 0.)
+}
+daily_probability_of_escape <- function(day, weight){
+  # Expects a day and a weight and computes the daily probability of escape 
+  bump(day, 30, 10) * (1e-2 + bump(weight, 200, 150)+bump(weight, 700, 150))
+}
+chickenwise_probability_of_escape <- function(weights){
+  # Expects a vector of daily weights from day 1 to N and computes the probability of 
+  # escape at the end of the time series
+  prob_of_failure = 1
+  for(day in 1:length(weights)){
+    prob_of_failure = prob_of_failure * (1-daily_probability_of_escape(day, weights[day]))
+  }
+  return(1 - prob_of_failure)
+}
+```
+
+:::
+::::
+
+
+
+## (b)
+
+
+```{r}
+# Useful r functions: chickenwise_probability_of_escape (see above)
+# rep(..., each=...), apply, 
+# ggplot, stat_dotsinterval
+
+Diets = rep(1:4, each = 4000)
+
+p1 <- predictions[,1:40]
+esp1 <- apply(p1,1,chickenwise_probability_of_escape)
+matrix1 <- matrix(esp1, byrow = TRUE)
+
+p2 <- predictions[,41:80]
+esp2 <- apply(p2,1,chickenwise_probability_of_escape)
+matrix2 <- matrix(esp2, byrow = TRUE)
+
+p3 <- predictions[,81:120]
+esp3 <- apply(p3,1,chickenwise_probability_of_escape)
+matrix3 <- matrix(esp3, byrow = TRUE)
+
+p4 <- predictions[,121:160]
+esp4 <- apply(p4,1,chickenwise_probability_of_escape)
+matrix4 <- matrix(esp4, byrow = TRUE)
+
+final <- rbind(matrix1, matrix2, matrix3, matrix4)
+
+probData = data.frame(final, rep(1:4, each = 4000))
+
+ggplot(probData, aes(x = final, y = Diets, group = rep(1:4, each = 4000))) +
+     stat_dotsinterval()
+```
+
+
+
+## (c)
+
+
+```{r}
+# Useful r functions: chickenwise_probability_of_escape (see above)
+# apply, aggregate, 
+aggregate(final ~ Diets, data = probData, FUN = mean)
+
+aggregate(df2$ExpectedWeight,by = list(df2$Diet), chickenwise_probability_of_escape)
+```
+
+- **Variation in Calculated Values:**
+  - The values calculated using two different methods display variations.
+  - The question underscores the incorrectness of relying solely on expected weight values for calculating escape probabilities.
+
+- **Principle of Expectation and Function:**
+  - The general rule $E[f(X)] \neq f[E[X]]$ is emphasized.
+  - While applicable for certain functions (e.g., linear functions), the current function does not conform to this principle.
+
+- **Observations on Escape Probabilities:**
+  - Probabilities are higher for Diet 1 and Diet 2 using the incorrect calculation method.
+  - This is attributed to slower trends in Diets 1 and 2, resulting in lower final average weights and higher escape probabilities.
+
+- **Impact of Diet Trends:**
+  - Diets 3 and 4 exhibit lower probabilities with the incorrect calculation method.
+  - The increasing trends in these diets lead to significantly higher average weights, reducing the escape probabilities compared to correct calculations.
+
+- **Weight Increase Effect:**
+  - The discrepancy in escape probabilities highlights the substantial weight increase for chicks on Diets 3 and 4 over the 40-day period.
+  - The incorrect calculation method fails to account for this increase, affecting the resulting escape probabilities.

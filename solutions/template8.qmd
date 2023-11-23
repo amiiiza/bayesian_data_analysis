@@ -1,0 +1,331 @@
+---
+title: "Assignment 8"
+subtitle: "LOO-CV model comparison"
+author: anonymous # <-- hand in anonymously
+format:
+  html:
+    toc: true
+    code-tools: true
+    code-line-numbers: true
+    number-sections: true
+    mainfont: Georgia, serif
+    page-layout: article
+  pdf:  
+    geometry:
+    - left=1cm,top=1cm,bottom=1cm,right=1cm
+    number-sections: true
+    code-annotations: none
+editor: source
+---
+
+# General information
+
+::: {.content-hidden when-format="pdf"}
+::: {.callout-warning collapse="false"}
+## Setup
+
+*This block will only be visible in your HTML output, but will be hidden when rendering to PDF with quarto for the submission.* **Make sure that this does not get displayed in the PDF!**
+
+The following loads several needed packages:
+
+```{r}
+#| label: imports
+library(bayesplot)
+library(cmdstanr)
+library(dplyr)
+library(ggplot2)
+library(ggdist) # for stat_dotsinterval
+library(posterior)
+library(brms)
+# Globally specfiy cmdstan backend for brms
+options(brms.backend="cmdstanr")
+# Tell brms to cache results if possible
+options(brms.file_refit="on_change")
+
+# Set more readable themes with bigger font for plotting packages
+ggplot2::theme_set(theme_minimal(base_size = 14))
+bayesplot::bayesplot_theme_set(theme_minimal(base_size = 14))
+```
+:::
+:::
+
+I did not use AI for solving this exercise.
+
+# A hierarchical model for chicken weight time series
+
+## Exploratory data analysis
+
+## (a)
+
+```{r}
+# Useful functions: ggplot, aes(x=...), geom_histogram
+data("ChickWeight")
+# Create the histogram using ggplot
+ggplot(ChickWeight, aes(x = weight)) +
+  geom_histogram(fill = "blue", color = "black") +
+  ggtitle("Distribution of Chicken Weights") +
+  xlab("Weight") +
+  ylab("Frequency")
+```
+
+**Weight Distribution:** The histogram shows that the majority of the chicken weights are clustered in the lower range, suggesting that most chickens weigh less than $100$ units. There is a long tail extending towards the heavier weights, indicating that there are relatively fewer chickens at these higher weights.
+
+**Qualitative Range:** The range of chicken weights seems to be from just above $0$ to slightly more than $300$ units. The data are skewed to the right, with a peak frequency around the $40$-$60$ units weight range.
+
+The histogram of chicken weights from the 'ChickWeight' dataset shows a right-skewed distribution with most of the data concentrated in the lower weight range, specifically around $40$ to $60$ units. The frequency of observations decreases as the weight increases, with few chickens weighing over $200$ units. This suggests a wide but uneven spread of chicken weights in the dataset.
+
+## (b)
+
+```{r}
+# Useful functions: ggplot, aes(x=...,y=...,group=...,color=...), geom_line
+ggplot(ChickWeight, aes(x = Time, y = weight, group = Chick, color = factor(Diet))) +
+  geom_line() +
+  ggtitle("Weight of Chickens Over Time by Diet") +
+  xlab("Time") +
+  ylab("Weight") +
+  scale_color_discrete(name = "Diet")
+```
+
+**Individual Growth Trajectories:** The plot displays individual growth trajectories of chickens over time, differentiated by the diet they were on.
+
+**Diet Influence:** It is evident that diet plays a role in the growth rates of the chickens. The colors represent different diets, and we can see that some diets result in faster or greater weight gain over time.
+
+**Weight Gain Over Time:** Generally, there is an increase in weight over time for all diets, which is expected as the chickens grow.
+
+**Variation Among Chickens:** There's a noticeable variation in weight among chickens even within the same diet group, indicating that factors other than diet may also influence growth.
+
+The line plot illustrates the growth patterns of chickens over time, with each line representing an individual chicken. The use of color to differentiate the diets shows that some diets are associated with more rapid weight gain. While there's an overall trend of weight increase over time across all diets, there's also significant variation within each diet group, suggesting individual differences among chickens or other unaccounted variables influencing growth. The plot is effective in conveying these trends and allows for quick visual comparison of the growth rates associated with different diets.
+
+## Linear regression
+
+## (c)
+
+In `brms`, a regression can be specified as below, see also [below (#m)](#m) or [the last template](template7.html#b-1). Fill in the appropriate variables, data, and likelihood family. Specify the priors, then run the model (by removing `#| eval: false` below).
+
+```{r, results='hide', message=FALSE, warning=FALSE, errors=FALSE}
+#| eval: true
+priors <- c(
+  prior(normal(0, 10), coef = "Time"),
+  prior(normal(0, 10), coef = "Diet2"),
+  prior(normal(0, 10), coef = "Diet3"),
+  prior(normal(0, 10), coef = "Diet4")
+)
+
+f1 <- brms::brm(
+  # This specifies the formula
+  weight ~ 1 + Time + Diet,
+  # This specifies the dataset
+  data = ChickWeight,
+  # This specifies the observation model family
+  family = gaussian(),
+  # This passes the priors specified above to brms
+  prior = priors,
+  # This causes brms to cache the results
+  #file = "additional_files/assignment8/f1",
+  save_pars = save_pars(all = TRUE)
+)
+```
+
+## (d)
+
+```{r}
+# Useful functions: brms::pp_check
+pp_check(f1)
+```
+
+**Distribution Shape:** The replicated data sets seem to follow the same general shape as the observed data, with a peak and a decline. However, there is **variability** in the predicted data, as expected from posterior predictive checks.
+
+**Fit to Observed Data:** As we observe the predicted and original datasets, there are differences between them. In the predicted dataset, the given range spans from negative values, whereas the original dataset has a range from zero since weights are positive numbers.
+
+## (e)
+
+```{r}
+# Useful functions: brms::pp_check(..., type = ..., group=...)
+pp_check(f1, type = "intervals_grouped", group = "Diet")
+```
+
+
+**Comparison of Observed and Predicted:** The observed data points ($y$) are plotted alongside the predicted intervals ($y_rep$). In some cases, the observed points fall outside of the predicted intervals, which could indicate areas where the model is not capturing the data well.
+
+Based on the visualizations, if there are consistent patterns where the observed data falls outside the predicted intervals, this suggests room for model improvement. One reasonable way to improve the model could be to consider interactions between 'Time' and 'Diet', as the effect of time on weight might differ across diets. Additionally, if the variability is not consistent across the range of weights, a model that allows for non-constant variance (such as using a varying-effects model or a model with a non-Gaussian family for the response distribution) could be more appropriate.
+
+When the observed data points systematically fall outside the predicted intervals, it can indicate that the model is missing some aspect of the data structure. For instance, if higher weights are less well-predicted, it could mean that the relationship between diet, time, and weight is not strictly linear or that there are other factors at play that are not accounted for in the model.
+
+To further improve the model, you could also consider:
+
+-   Adding polynomial terms for 'Time' if the growth rate is not linear.
+
+-   Using log-normal family to avoid negativity.
+
+-   Including random effects if there is clustering in the data (e.g., chickens within the same batch might be more similar to each other).
+
+-   Examining other covariates that might influence weight, such as initial weight, genetic factors, or environmental conditions.
+
+## Log-normal linear regression
+
+## (f)
+
+```{r,  results='hide', message=FALSE, warning=FALSE, errors=FALSE}
+log_priors <- c(
+  prior(normal(0, log(3)), coef = "Time"),
+  prior(normal(0, log(5)), coef = "Diet2"),
+  prior(normal(0, log(5)), coef = "Diet3"),
+  prior(normal(0, log(5)), coef = "Diet4")
+)
+
+f2 <- brms::brm(
+  weight ~ 1 + Time + Diet,
+  data = ChickWeight,
+  family = "lognormal",
+  prior = priors,
+  #file = "additional_files/assignment8/f2",
+  save_pars = save_pars(all = TRUE)
+)
+```
+
+```{r}
+pp_check(f2)
+pp_check(f2, type = "intervals_grouped", group = "Diet")
+```
+
+
+The switch to a lognormal distribution seems to have improved the model fit, especially for the higher weights where a normal model might have underestimated the variance.
+
+The lognormal model's multiplicative nature is likely more appropriate for growth data, which tend to be skewed and not symmetrically distributed.
+
+Some data points still fall outside the predicted intervals, indicating potential areas for further model improvement, such as considering interactions between predictors, nonlinear effects, or heteroscedasticity.
+
+Overall, the updated model with a lognormal distribution appears to better capture the distribution of the observed data, particularly in terms of the spread and skewness, which are common characteristics of biological growth data.
+
+## Hierarchical log-normal linear regression
+
+## (g)
+
+```{r, results='hide', message=FALSE, warning=FALSE, errors=FALSE}
+f3 <- brms::brm(
+  weight ~ 1 + Time + Diet + (Time | Chick),
+  data = ChickWeight,
+  family = "lognormal",
+  prior = priors,
+  #file = "additional_files/assignment8/f3",
+  save_pars = save_pars(all = TRUE)
+)
+```
+
+```{r}
+pp_check(f3)
+pp_check(f3, type = "intervals_grouped", group = "Diet")
+```
+
+Looking at the charts, it's clear that the predicted data matches the original data quite closely, showing a more accurate trend. The data is spread out moderately and doesn't show any obvious overfitting or negative patterns.
+
+## (h)
+
+## Model comparison using the ELPD
+
+```{r}
+summary(f1)
+summary(f2)
+summary(f3)
+```
+
+In summary, the models appear to have converged well based on the Rhat values (all of them are less than $1.1$), and the effective sample sizes are generally sufficient, although some parameters, especially in the hierarchical model, might need further investigation. There's no explicit mention of divergent transitions, which is typically a positive sign. This overall suggests that the models are reliable from a convergence standpoint.
+
+## (i)
+
+```{r, results='hide', message=FALSE, warning=FALSE, errors=FALSE}
+# Useful functions: loo, loo_compare
+mmloo1 <- loo(f1, moment_match = TRUE)
+#mmloo1 <- loo_moment_match(f1, loo = loo1)
+mmloo2 <- loo(f2, moment_match = TRUE)
+#mmloo2 <- loo_moment_match(f2, loo = loo2)
+mmloo3 <- loo(f3, moment_match = TRUE)
+#mmloo3 <- loo_moment_match(f3, loo = loo3)
+```
+
+```{r}
+# Compare models
+loo_comparison <- loo_compare(mmloo1, mmloo2, mmloo3)
+print(loo_comparison)
+```
+Best Predictive Performance: The model with the best predictive performance is indicated by the highest expected log predictive density (ELPD). In your case, f3 (the hierarchical log-normal linear regression model) has the highest ELPD, as it has an elpd_diff of $0.0$ compared to the other models. This indicates that f3 is the best model in terms of predictive performance among the three models compared.
+
+Influence of Uncertainty: These substantial differences in ELPD, accompanied by relatively smaller standard errors, suggest that the uncertainty does not significantly influence the decision of which model is best. f3 remains the best model with considerable confidence.
+
+## (j)
+
+```{r}
+# Useful functions: plot(loo(...), label_points = TRUE)
+plot(mmloo1, label_points = TRUE)
+plot(mmloo2, label_points = TRUE)
+plot(mmloo3, label_points = TRUE)
+```
+
+Observing the plots, it's evident that the hierarchical log-normal model has a higher estimated value of $\hat{k}$ compared to the others.
+
+## (k)
+
+```{r}
+# Assuming you have a hierarchical model fit
+# Select chickens with high and low Pareto k values
+k_hat_values <- mmloo3$diagnostics$pareto_k
+high_k_chickens <- ChickWeight$Chick[order(k_hat_values, decreasing = TRUE)[1:4]]
+low_k_chickens <- ChickWeight$Chick[order(k_hat_values)[1:4]]   # Chickens with low k values
+print("Chicken with high k hat value:")
+print(high_k_chickens)
+```
+
+```{r}
+# PPC for selected chickens
+brms::pp_check(
+  f3, 
+  type = "intervals_grouped", 
+  group = "Chick", 
+  newdata = ChickWeight |> filter(Chick %in% c(high_k_chickens, low_k_chickens))
+)
+```
+
+The graphs suggest that the model performs more effectively with lower $\hat{k}$ values than with higher ones, showcasing a superior fit in the former case. The model demonstrates enhanced performance when $\hat{k}$ is on the lower side.
+
+## Model comparison using the RMSE
+
+## (l)
+
+```{r}
+rmse <- function(fit, use_loo = FALSE) {
+  mean_y_pred <- if(use_loo) {
+    brms::loo_predict(fit)
+  } else {
+    colMeans(brms::posterior_predict(fit)) 
+  }
+  sqrt(mean((mean_y_pred - brms::get_y(fit))^2))
+}
+
+# Compute RMSE and LOO-RMSE for your models
+rmse_fit1 <- rmse(f1)
+loo_rmse_fit1 <- rmse(f1, use_loo = TRUE)
+print(paste("RMSE for model fit1: ", rmse_fit1))
+print(paste("LOO-RMSE for model fit1: ", loo_rmse_fit1))
+
+rmse_fit2 <- rmse(f2)
+loo_rmse_fit2 <- rmse(f2, use_loo = TRUE)
+print(paste("RMSE for model fit2: ", rmse_fit2))
+print(paste("LOO-RMSE for model fit2: ", loo_rmse_fit2))
+
+rmse_fit3 <- rmse(f3)
+loo_rmse_fit3 <- rmse(f3, use_loo = TRUE)
+print(paste("RMSE for model fit3: ", rmse_fit3))
+print(paste("LOO-RMSE for model fit3: ", loo_rmse_fit3))
+```
+Difference Between RMSE and LOO-RMSE:
+- RMSE (Root Mean Square Error) measures the average magnitude of the errors between the predictions and the actual observed values, without considering model complexity or overfitting. It's a straightforward measure of prediction accuracy on the training data.
+
+- LOO-RMSE (Leave-One-Out RMSE) incorporates cross-validation (specifically, leave-one-out cross-validation). It assesses how well the model predicts new, unseen data. By leaving out one observation at a time from the dataset, it estimates how well the model performs on data it was not trained on, thus providing a more robust measure of model predictive performance.
+
+Comparison of RMSE and LOO-RMSE Values:
+- For all three models (f1, f2, f3), the LOO-RMSE is higher than the RMSE. This is generally expected because RMSE is calculated on the same data that the model was trained on, leading to potentially lower error rates due to model fitting to this specific dataset. In contrast, LOO-RMSE provides a more conservative and arguably more realistic estimate of the model’s predictive accuracy on unseen data, as it simulates the model's performance on new data by excluding each observation one at a time during validation.
+
+Model Comparison:
+- Among the three models, the Hierarchical log-normal linear regression (f3) has the lowest RMSE and LOO-RMSE, indicating its superior predictive accuracy both on the training data and in a cross-validated setting.
+
+- The Log-normal linear regression (f2) and the Linear regression (f1) models show higher RMSE and LOO-RMSE values compared to f3, with f1 performing the least effectively.
